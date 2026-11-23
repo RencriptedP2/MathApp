@@ -273,7 +273,7 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
                         Spacer(modifier = Modifier.height(4.dp))
                     }
                     Text(
-                        text = if (lastEvaluated) result else (if (expression.isEmpty()) "0" else expression),
+                        text = if (expression.isEmpty()) "0" else result,
                         style = MaterialTheme.typography.displayMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -418,15 +418,29 @@ private fun KeypadButton(
 }
 
 private fun tryEvaluate(expr: String): String {
-    if (expr.isEmpty()) return "0"
-    return try {
-        val res = ExpressionEvaluator.evaluate(expr, emptyMap())
-        when (res) {
-            is EvalResult.Success -> res.formattedResult
-            is EvalResult.DivisionByZero -> "Error (div entre 0)"
-            is EvalResult.Error -> expr
+    val trimmed = expr.trim()
+    if (trimmed.isEmpty()) return "0"
+    try {
+        val res = ExpressionEvaluator.evaluate(trimmed, emptyMap())
+        if (res is EvalResult.Success) {
+            return res.formattedResult
+        } else if (res is EvalResult.DivisionByZero) {
+            return "Error (div entre 0)"
+        }
+
+        // For live preview while typing, strip trailing operators if incomplete expression
+        var cleanExpr = trimmed
+        while (cleanExpr.isNotEmpty() && cleanExpr.last() in listOf('+', '-', '×', '÷', '*', '/')) {
+            cleanExpr = cleanExpr.dropLast(1).trim()
+        }
+        if (cleanExpr.isNotEmpty()) {
+            val prevRes = ExpressionEvaluator.evaluate(cleanExpr, emptyMap())
+            if (prevRes is EvalResult.Success) {
+                return prevRes.formattedResult
+            }
         }
     } catch (_: Exception) {
-        expr
+        // Fallback
     }
+    return "0"
 }
