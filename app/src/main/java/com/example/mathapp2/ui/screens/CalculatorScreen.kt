@@ -15,24 +15,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -49,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mathapp2.util.EvalResult
 import com.example.mathapp2.util.ExpressionEvaluator
+import kotlin.math.sqrt
 
 data class CalculationHistoryItem(
     val expression: String,
@@ -61,23 +60,53 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
     var result by remember { mutableStateOf("0") }
     var lastEvaluated by remember { mutableStateOf(false) }
 
-    // Local calculation history (max 50 operations)
+    // Memory State (MC, MR, M+, M-, MS)
+    var memoryValue by remember { mutableStateOf<Double?>(null) }
+
+    // State for local calculation history (max 50 operations)
     val history = remember { mutableStateListOf<CalculationHistoryItem>() }
-    val historyListState = rememberLazyListState()
+    var showHistoryDialog by remember { mutableStateOf(false) }
 
     fun addHistoryItem(expr: String, res: String) {
         if (expr.isBlank() || res.startsWith("Error")) return
-        // Add to top of history
         history.add(0, CalculationHistoryItem(expression = expr, result = res))
-        // Maintain maximum 50 items
         if (history.size > 50) {
             history.removeAt(history.size - 1)
+        }
+    }
+
+    fun applyUnaryFunction(type: String) {
+        val currentVal = (if (lastEvaluated) result else tryEvaluate(expression)).toDoubleOrNull()
+            ?: (expression.toDoubleOrNull() ?: 0.0)
+
+        val newResultVal = when (type) {
+            "1/x" -> if (currentVal == 0.0) null else 1.0 / currentVal
+            "x²" -> currentVal * currentVal
+            "²√x" -> if (currentVal < 0.0) null else sqrt(currentVal)
+            "+/-" -> -currentVal
+            "%" -> currentVal / 100.0
+            else -> currentVal
+        }
+
+        if (newResultVal == null) {
+            result = if (type == "1/x") "Error (div entre 0)" else "Error (raíz negativa)"
+            lastEvaluated = true
+        } else {
+            val formatted = ExpressionEvaluator.formatNum(newResultVal)
+            expression = formatted
+            result = formatted
+            lastEvaluated = true
         }
     }
 
     fun onButtonClick(symbol: String) {
         when (symbol) {
             "C" -> {
+                expression = ""
+                result = "0"
+                lastEvaluated = false
+            }
+            "CE" -> {
                 expression = ""
                 result = "0"
                 lastEvaluated = false
@@ -96,6 +125,9 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
                     lastEvaluated = true
                 }
             }
+            "1/x", "x²", "²√x", "+/-", "%" -> {
+                applyUnaryFunction(symbol)
+            }
             "+", "-", "×", "÷" -> {
                 if (lastEvaluated) {
                     expression = result
@@ -112,7 +144,7 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
                     expression = "-"
                 }
             }
-            else -> { // Numbers and decimal point
+            else -> { // Numbers 0-9 and decimal point
                 if (lastEvaluated) {
                     expression = symbol
                     lastEvaluated = false
@@ -127,10 +159,10 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(12.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Display Card containing Local Operations History & Current Numbers Display
+        // Display Card containing History Button & Numbers Display
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -146,115 +178,47 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
                     .padding(16.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // History Section Header
+                // Top Row: History Popup Button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer)
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.History,
-                                    contentDescription = "Historial",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Historial (${history.size}/50)",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                        }
-                    }
-
-                    if (history.isNotEmpty()) {
-                        IconButton(
-                            onClick = { history.clear() },
-                            modifier = Modifier.size(28.dp)
-                        ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .clickable { showHistoryDialog = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.DeleteOutline,
-                                contentDescription = "Borrar historial",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                imageVector = Icons.Default.History,
+                                contentDescription = "Ver historial",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.size(18.dp)
                             )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Scrollable Local History Area
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                ) {
-                    if (history.isEmpty()) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Sin historial aún. Las últimas 50 operaciones aparecerán aquí.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 16.dp)
+                                text = if (history.isEmpty()) "📜 Historial" else "📜 Historial (${history.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
-                    } else {
-                        LazyColumn(
-                            state = historyListState,
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(history) { item ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable {
-                                            // Recall expression and result when tapped
-                                            expression = item.expression
-                                            result = item.result
-                                            lastEvaluated = true
-                                        }
-                                        .padding(vertical = 4.dp, horizontal = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = item.expression,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                    )
-                                    Text(
-                                        text = "= ${item.result}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
+                    }
+
+                    if (memoryValue != null) {
+                        Text(
+                            text = "M: ${ExpressionEvaluator.formatNum(memoryValue!!)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
 
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                )
+                Spacer(modifier = Modifier.weight(1f))
 
                 // Current Expression & Result Display Area
                 Column(
@@ -285,71 +249,56 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Action Buttons Row (C Limpiar & Borrar)
+        // Memory Functions Row (MC, MR, M+, M-, MS)
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            FilledTonalButton(
-                onClick = { onButtonClick("C") },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(50.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Clear,
-                    contentDescription = "Limpiar",
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Limpiar", fontWeight = FontWeight.SemiBold)
+            MemoryButton("MC", enabled = memoryValue != null) { memoryValue = null }
+            MemoryButton("MR", enabled = memoryValue != null) {
+                memoryValue?.let {
+                    val formatted = ExpressionEvaluator.formatNum(it)
+                    expression = formatted
+                    result = formatted
+                    lastEvaluated = true
+                }
             }
-
-            FilledTonalButton(
-                onClick = { onButtonClick("DEL") },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(50.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Backspace,
-                    contentDescription = "Borrar",
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Borrar", fontWeight = FontWeight.SemiBold)
+            MemoryButton("M+", enabled = true) {
+                val curVal = result.toDoubleOrNull() ?: 0.0
+                memoryValue = (memoryValue ?: 0.0) + curVal
+            }
+            MemoryButton("M-", enabled = true) {
+                val curVal = result.toDoubleOrNull() ?: 0.0
+                memoryValue = (memoryValue ?: 0.0) - curVal
+            }
+            MemoryButton("MS", enabled = true) {
+                val curVal = result.toDoubleOrNull() ?: 0.0
+                memoryValue = curVal
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Keypad Grid
+        // Keypad Grid (Standard Windows Calculator Layout)
         val buttons = listOf(
-            listOf("7", "8", "9", "÷"),
-            listOf("4", "5", "6", "×"),
-            listOf("1", "2", "3", "-"),
-            listOf("0", ".", "+")
+            listOf("%", "CE", "C", "DEL"),
+            listOf("1/x", "x²", "²√x", "÷"),
+            listOf("7", "8", "9", "×"),
+            listOf("4", "5", "6", "-"),
+            listOf("1", "2", "3", "+"),
+            listOf("+/-", "0", ".", "=")
         )
 
         Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             buttons.forEach { row ->
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     row.forEach { symbol ->
@@ -361,33 +310,129 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Large Equals/Calcular Button
-            Button(
-                onClick = { onButtonClick("=") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Text(text = "=  Calcular", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            }
         }
+    }
 
-        Spacer(modifier = Modifier.height(8.dp))
+    // Pop-up Dialog for Calculation History
+    if (showHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showHistoryDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Historial de operaciones",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (history.isEmpty()) {
+                        Text(
+                            text = "Sin historial aún. Las últimas 50 operaciones que calcules aparecerán aquí.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "Toca cualquier operación para cargarla (${history.size}/50):",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(history) { item ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                        .clickable {
+                                            expression = item.expression
+                                            result = item.result
+                                            lastEvaluated = true
+                                            showHistoryDialog = false
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = item.expression,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "= ${item.result}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showHistoryDialog = false }) {
+                    Text("Cerrar", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                if (history.isNotEmpty()) {
+                    TextButton(
+                        onClick = { history.clear() }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Borrar historial", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+}
 
+@Composable
+private fun MemoryButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        )
+    ) {
         Text(
-            text = "Usa el punto (.) para los números decimales. Toca cualquier operación del historial para recargarla.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
         )
     }
 }
@@ -399,21 +444,61 @@ private fun KeypadButton(
     modifier: Modifier = Modifier
 ) {
     val isOperator = symbol in listOf("÷", "×", "-", "+")
+    val isEquals = symbol == "="
+    val isSpecialFunc = symbol in listOf("1/x", "x²", "²√x", "%", "CE", "C", "DEL", "+/-")
 
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier.height(60.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-            contentColor = if (isOperator) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-        )
-    ) {
-        Text(
-            text = symbol,
-            fontSize = 22.sp,
-            fontWeight = if (isOperator) FontWeight.Bold else FontWeight.SemiBold
-        )
+    when {
+        isEquals -> {
+            Button(
+                onClick = onClick,
+                modifier = modifier.height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Text(
+                    text = symbol,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        symbol == "DEL" -> {
+            OutlinedButton(
+                onClick = onClick,
+                modifier = modifier.height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Backspace,
+                    contentDescription = "Borrar",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        else -> {
+            OutlinedButton(
+                onClick = onClick,
+                modifier = modifier.height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (isOperator || isSpecialFunc) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    contentColor = if (isOperator) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+            ) {
+                Text(
+                    text = symbol,
+                    fontSize = if (symbol.length > 2) 14.sp else 18.sp,
+                    fontWeight = if (isOperator || isSpecialFunc) FontWeight.Bold else FontWeight.SemiBold
+                )
+            }
+        }
     }
 }
 
